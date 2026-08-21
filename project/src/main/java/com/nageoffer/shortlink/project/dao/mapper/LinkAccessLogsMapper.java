@@ -50,8 +50,12 @@ public interface LinkAccessLogsMapper extends BaseMapper<LinkAccessLogsDO> {
             "    tlal.full_short_url = #{param.fullShortUrl} " +
             "    AND tl.gid = #{param.gid} " +
             "    AND tl.del_flag = '0' " +
-            "    AND tl.enable_status = #{param.enableStatus} " +
-            "    AND tlal.create_time BETWEEN #{param.startDate} and #{param.endDate} " +
+            // v1 原逻辑（保留对比）：enable_status = #{param.enableStatus}（参数为 null 恒不成立）
+            // v1 原逻辑（保留对比）：create_time BETWEEN #{startDate} and #{endDate}（endDate 当天被排除）
+            // v2 修复：enable_status 硬编码 '0'；create_time 按"endDate 当天 24 点"包含
+            "    AND tl.enable_status = '0' " +
+            "    AND tlal.create_time >= #{param.startDate} " +
+            "    AND tlal.create_time < DATE_ADD(#{param.endDate}, INTERVAL 1 DAY) " +
             "GROUP BY " +
             "    tlal.full_short_url, tl.gid, tlal.ip " +
             "ORDER BY " +
@@ -72,7 +76,10 @@ public interface LinkAccessLogsMapper extends BaseMapper<LinkAccessLogsDO> {
             "    tl.gid = #{param.gid} " +
             "    AND tl.del_flag = '0' " +
             "    AND tl.enable_status = '0' " +
-            "    AND tlal.create_time BETWEEN #{param.startDate} and #{param.endDate} " +
+            // v1 原逻辑（保留对比）：create_time BETWEEN #{startDate} and #{endDate}
+            // v2 修复：endDate 当天按 24 点包含
+            "    AND tlal.create_time >= #{param.startDate} " +
+            "    AND tlal.create_time < DATE_ADD(#{param.endDate}, INTERVAL 1 DAY) " +
             "GROUP BY " +
             "    tl.gid, tlal.ip " +
             "ORDER BY " +
@@ -89,14 +96,17 @@ public interface LinkAccessLogsMapper extends BaseMapper<LinkAccessLogsDO> {
             "FROM ( " +
             "    SELECT " +
             "        CASE WHEN COUNT(DISTINCT DATE(tlal.create_time)) > 1 THEN 1 ELSE 0 END AS old_user, " +
-            "        CASE WHEN COUNT(DISTINCT DATE(tlal.create_time)) = 1 AND MAX(tlal.create_time) >= #{param.startDate} AND MAX(tlal.create_time) <= #{param.endDate} THEN 1 ELSE 0 END AS new_user " +
+            // v1 原逻辑（保留对比）：MAX(create_time) <= #{param.endDate}
+            // v2 修复：endDate 当天按 24 点包含
+            "        CASE WHEN COUNT(DISTINCT DATE(tlal.create_time)) = 1 AND MAX(tlal.create_time) >= #{param.startDate} AND MAX(tlal.create_time) < DATE_ADD(#{param.endDate}, INTERVAL 1 DAY) THEN 1 ELSE 0 END AS new_user " +
             "    FROM " +
             "        t_link tl INNER JOIN " +
             "        t_link_access_logs tlal ON tl.full_short_url = tlal.full_short_url " +
             "    WHERE " +
             "        tlal.full_short_url = #{param.fullShortUrl} " +
             "        AND tl.gid = #{param.gid} " +
-            "        AND tl.enable_status = #{param.enableStatus} " +
+            // v1 原逻辑（保留对比）：enable_status = #{param.enableStatus}
+            "        AND tl.enable_status = '0' " +
             "        AND tl.del_flag = '0' " +
             "    GROUP BY " +
             "        tlal.user " +
@@ -110,7 +120,9 @@ public interface LinkAccessLogsMapper extends BaseMapper<LinkAccessLogsDO> {
             "SELECT " +
             "    tlal.user, " +
             "    CASE " +
-            "        WHEN MIN(tlal.create_time) BETWEEN #{startDate} AND #{endDate} THEN '新访客' " +
+            // v1 原逻辑（保留对比）：MIN(create_time) BETWEEN #{startDate} AND #{endDate}
+            // v2 修复：endDate 当天按 24 点包含
+            "        WHEN MIN(tlal.create_time) >= #{startDate} AND MIN(tlal.create_time) &lt; DATE_ADD(#{endDate}, INTERVAL 1 DAY) THEN '新访客' " +
             "        ELSE '老访客' " +
             "    END AS uvType " +
             "FROM " +
@@ -144,7 +156,9 @@ public interface LinkAccessLogsMapper extends BaseMapper<LinkAccessLogsDO> {
             "SELECT " +
             "    tlal.user, " +
             "    CASE " +
-            "        WHEN MIN(tlal.create_time) BETWEEN #{startDate} AND #{endDate} THEN '新访客' " +
+            // v1 原逻辑（保留对比）：MIN(create_time) BETWEEN #{startDate} AND #{endDate}
+            // v2 修复：endDate 当天按 24 点包含
+            "        WHEN MIN(tlal.create_time) >= #{startDate} AND MIN(tlal.create_time) &lt; DATE_ADD(#{endDate}, INTERVAL 1 DAY) THEN '新访客' " +
             "        ELSE '老访客' " +
             "    END AS uvType " +
             "FROM " +
@@ -182,8 +196,11 @@ public interface LinkAccessLogsMapper extends BaseMapper<LinkAccessLogsDO> {
             "    tlal.full_short_url = #{param.fullShortUrl} " +
             "    AND tl.gid = #{param.gid} " +
             "    AND tl.del_flag = '0' " +
-            "    AND tl.enable_status = #{param.enableStatus} " +
-            "    AND tlal.create_time BETWEEN #{param.startDate} and #{param.endDate} " +
+            // v1 原逻辑（保留对比）：enable_status = #{param.enableStatus}；create_time BETWEEN
+            // v2 修复：enable_status 硬编码 '0'；endDate 当天按 24 点包含
+            "    AND tl.enable_status = '0' " +
+            "    AND tlal.create_time >= #{param.startDate} " +
+            "    AND tlal.create_time < DATE_ADD(#{param.endDate}, INTERVAL 1 DAY) " +
             "GROUP BY " +
             "    tlal.full_short_url, tl.gid;")
     LinkAccessStatsDO findPvUvUidStatsByShortLink(@Param("param") ShortLinkStatsReqDTO requestParam);
@@ -202,7 +219,10 @@ public interface LinkAccessLogsMapper extends BaseMapper<LinkAccessLogsDO> {
             "    tl.gid = #{param.gid} " +
             "    AND tl.del_flag = '0' " +
             "    AND tl.enable_status = '0' " +
-            "    AND tlal.create_time BETWEEN #{param.startDate} and #{param.endDate} " +
+            // v1 原逻辑（保留对比）：create_time BETWEEN
+            // v2 修复：endDate 当天按 24 点包含
+            "    AND tlal.create_time >= #{param.startDate} " +
+            "    AND tlal.create_time < DATE_ADD(#{param.endDate}, INTERVAL 1 DAY) " +
             "GROUP BY " +
             "    tl.gid;")
     LinkAccessStatsDO findPvUvUidStatsByGroup(@Param("param") ShortLinkGroupStatsReqDTO requestParam);
@@ -216,7 +236,10 @@ public interface LinkAccessLogsMapper extends BaseMapper<LinkAccessLogsDO> {
             "    tl.gid = #{param.gid} " +
             "    AND tl.del_flag = '0' " +
             "    AND tl.enable_status = '0' " +
-            "    AND tlal.create_time BETWEEN #{param.startDate} and #{param.endDate} " +
+            // v1 原逻辑（保留对比）：create_time BETWEEN
+            // v2 修复：endDate 当天按 24 点包含
+            "    AND tlal.create_time >= #{param.startDate} " +
+            "    AND tlal.create_time < DATE_ADD(#{param.endDate}, INTERVAL 1 DAY) " +
             "ORDER BY " +
             "    tlal.create_time DESC")
     IPage<LinkAccessLogsDO> selectGroupPage(@Param("param") ShortLinkGroupStatsAccessRecordReqDTO requestParam);

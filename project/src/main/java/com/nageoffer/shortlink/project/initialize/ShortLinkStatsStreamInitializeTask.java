@@ -29,7 +29,10 @@ import static com.nageoffer.shortlink.project.common.constant.RedisKeyConstant.S
  * 初始化短链接监控消息队列消费者组
  * 公众号：马丁玩编程，回复：加群，添加马哥微信（备注：link）获取项目资料
  */
-@Component
+// ==================== v1 原逻辑（Redis Stream，保留对比，切换 RocketMQ 后不再注册） ====================
+// @Component
+// ================================================================================================
+@Deprecated // v1：Stream 消费组初始化，保留供对比学习；RocketMQ 版本见 ShortLinkStatsRocketMQConsumer
 @RequiredArgsConstructor
 public class ShortLinkStatsStreamInitializeTask implements InitializingBean {
 

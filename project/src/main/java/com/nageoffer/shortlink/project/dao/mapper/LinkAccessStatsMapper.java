@@ -57,7 +57,10 @@ public interface LinkAccessStatsMapper extends BaseMapper<LinkAccessStatsDO> {
             "    tlas.full_short_url = #{param.fullShortUrl} " +
             "    AND tl.gid = #{param.gid} " +
             "    AND tl.del_flag = '0' " +
-            "    AND tl.enable_status = #{param.enableStatus} " +
+            // v1 原逻辑（保留对比）：AND tl.enable_status = #{param.enableStatus}
+            // DTO 的 enableStatus 从未被前端赋值，参数为 null 导致比较恒不成立，查询永远返回空；
+            // v2 修复：与 listStatsByGroup 保持一致，硬编码查询启用中的短链
+            "    AND tl.enable_status = '0' " +
             "    AND tlas.date BETWEEN #{param.startDate} and #{param.endDate} " +
             "GROUP BY " +
             "    tlas.full_short_url, tl.gid, tlas.date;")

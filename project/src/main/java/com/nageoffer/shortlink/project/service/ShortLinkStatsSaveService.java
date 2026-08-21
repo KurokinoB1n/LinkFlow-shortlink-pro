@@ -1,21 +1,4 @@
-/*
- * Licensed to the Apache Software Foundation (ASF) under one or more
- * contributor license agreements.  See the NOTICE file distributed with
- * this work for additional information regarding copyright ownership.
- * The ASF licenses this file to You under the Apache License, Version 2.0
- * (the "License"); you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
-package com.nageoffer.shortlink.project.mq.consumer;
+package com.nageoffer.shortlink.project.service;
 
 import cn.hutool.core.date.DateUtil;
 import cn.hutool.core.date.Week;
@@ -25,7 +8,6 @@ import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
-import com.nageoffer.shortlink.project.common.convention.exception.ServiceException;
 import com.nageoffer.shortlink.project.dao.entity.LinkAccessLogsDO;
 import com.nageoffer.shortlink.project.dao.entity.LinkAccessStatsDO;
 import com.nageoffer.shortlink.project.dao.entity.LinkBrowserStatsDO;
@@ -46,38 +28,29 @@ import com.nageoffer.shortlink.project.dao.mapper.LinkStatsTodayMapper;
 import com.nageoffer.shortlink.project.dao.mapper.ShortLinkGotoMapper;
 import com.nageoffer.shortlink.project.dao.mapper.ShortLinkMapper;
 import com.nageoffer.shortlink.project.dto.biz.ShortLinkStatsRecordDTO;
-import com.nageoffer.shortlink.project.mq.idempotent.MessageQueueIdempotentHandler;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RLock;
 import org.redisson.api.RReadWriteLock;
 import org.redisson.api.RedissonClient;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.data.redis.connection.stream.MapRecord;
-import org.springframework.data.redis.connection.stream.RecordId;
-import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.data.redis.stream.StreamListener;
-import org.springframework.stereotype.Component;
+import org.springframework.stereotype.Service;
 
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Objects;
 
 import static com.nageoffer.shortlink.project.common.constant.RedisKeyConstant.LOCK_GID_UPDATE_KEY;
 import static com.nageoffer.shortlink.project.common.constant.ShortLinkConstant.AMAP_REMOTE_URL;
 
 /**
- * 短链接监控状态保存消息队列消费者
- * 公众号：马丁玩编程，回复：加群，添加马哥微信（备注：link）获取项目资料
+ * 短链接监控统计落库服务（v2 新增）
+ *
+ * <p>把 v1 ShortLinkStatsSaveConsumer.actualSaveShortLinkStats 的完整落库逻辑原样搬入，
+ * RocketMQ 与（保留对比的）Stream 两个消费端共用这一份实现，避免两份逻辑漂移。</p>
  */
-@Slf4j
-// ==================== v1 原逻辑（Redis Stream，保留对比，切换 RocketMQ 后不再注册） ====================
-// @Component
-// ================================================================================================
-@Deprecated // v1：Redis Stream 消费端，保留供对比学习；RocketMQ 版本见 ShortLinkStatsRocketMQConsumer
+@Service
 @RequiredArgsConstructor
-public class ShortLinkStatsSaveConsumer implements StreamListener<String, MapRecord<String, String, String>> {
+public class ShortLinkStatsSaveService {
 
     private final ShortLinkMapper shortLinkMapper;
     private final ShortLinkGotoMapper shortLinkGotoMapper;
@@ -90,38 +63,15 @@ public class ShortLinkStatsSaveConsumer implements StreamListener<String, MapRec
     private final LinkDeviceStatsMapper linkDeviceStatsMapper;
     private final LinkNetworkStatsMapper linkNetworkStatsMapper;
     private final LinkStatsTodayMapper linkStatsTodayMapper;
-    private final StringRedisTemplate stringRedisTemplate;
-    private final MessageQueueIdempotentHandler messageQueueIdempotentHandler;
 
     @Value("${short-link.stats.locale.amap-key}")
     private String statsLocaleAmapKey;
 
-    @Override
-    public void onMessage(MapRecord<String, String, String> message) {
-        String stream = message.getStream();
-        RecordId id = message.getId();
-        if (messageQueueIdempotentHandler.isMessageBeingConsumed(id.toString())) {
-            // 判断当前的这个消息流程是否执行完成
-            if (messageQueueIdempotentHandler.isAccomplish(id.toString())) {
-                return;
-            }
-            throw new ServiceException("消息未完成流程，需要消息队列重试");
-        }
-        try {
-            Map<String, String> producerMap = message.getValue();
-                    //转换回dto方便下面的落库逻辑
-            ShortLinkStatsRecordDTO statsRecord = JSON.parseObject(producerMap.get("statsRecord"), ShortLinkStatsRecordDTO.class);
-            actualSaveShortLinkStats(statsRecord);
-            stringRedisTemplate.opsForStream().delete(Objects.requireNonNull(stream), id.getValue());
-        } catch (Throwable ex) {
-            // 某某某情况宕机了
-            messageQueueIdempotentHandler.delMessageProcessed(id.toString());
-            log.error("记录短链接监控消费异常", ex);
-            throw ex;
-        }
-        messageQueueIdempotentHandler.setAccomplish(id.toString());
-    }
-
+    /**
+     * 统计落库（方法体与 v1 actualSaveShortLinkStats 完全一致，含 goto 空值保护）
+     *
+     * @param statsRecord 跳转埋点收集的统计对象
+     */
     public void actualSaveShortLinkStats(ShortLinkStatsRecordDTO statsRecord) {
         String fullShortUrl = statsRecord.getFullShortUrl();
         RReadWriteLock readWriteLock = redissonClient.getReadWriteLock(String.format(LOCK_GID_UPDATE_KEY, fullShortUrl));
@@ -132,7 +82,7 @@ public class ShortLinkStatsSaveConsumer implements StreamListener<String, MapRec
                     .eq(ShortLinkGotoDO::getFullShortUrl, fullShortUrl);
             ShortLinkGotoDO shortLinkGotoDO = shortLinkGotoMapper.selectOne(queryWrapper);
             if (shortLinkGotoDO == null) {
-                // v2 新增：短链已被彻底删除（t_link_goto 行已清理），该跳转埋点失去归属分组，直接忽略
+                // 短链已被彻底删除（t_link_goto 行已清理），该跳转埋点失去归属分组，直接忽略
                 return;
             }
             String gid = shortLinkGotoDO.getGid();
@@ -142,14 +92,10 @@ public class ShortLinkStatsSaveConsumer implements StreamListener<String, MapRec
             Week week = DateUtil.dayOfWeekEnum(currentDate);
             int weekValue = week.getIso8601Value();
 
-            //1. linkAccessStatsDO 写基础统计表 t_link_access_stats (PV/UV/UIP/小时)
-            // MyBatis 会通过动态代理（JDK Dynamic Proxy），
-            // 根据方法名 shortLinkStats 找到对应的 XML 映射文件（LinkAccessStatsMapper.xml）
-            // 中 id="shortLinkStats" 的 SQL 标签，并将传入的 linkAccessStatsDO 对象中的属性值（如 pv=1、uv=1、fullShortUrl="s.link/x"）
-            // 填入 SQL 的占位符（#{...}）中。
+            // 1. 基础统计表 t_link_access_stats（PV/UV/UIP/小时/星期）
             LinkAccessStatsDO linkAccessStatsDO = LinkAccessStatsDO.builder()
-                    .pv(1)// 每次跳转，PV 固定 +1
-                    .uv(statsRecord.getUvFirstFlag() ? 1 : 0)// 根据 标志位的redis sadd特性 判定加 1 还是 0
+                    .pv(1)
+                    .uv(statsRecord.getUvFirstFlag() ? 1 : 0)
                     .uip(statsRecord.getUipFirstFlag() ? 1 : 0)
                     .hour(hour)
                     .weekday(weekValue)
@@ -158,8 +104,8 @@ public class ShortLinkStatsSaveConsumer implements StreamListener<String, MapRec
                     .build();
             linkAccessStatsMapper.shortLinkStats(linkAccessStatsDO);
 
+            // 2. 地区表 t_link_locale_stats（高德 IP 定位，异步消费端调用不影响跳转）
             Map<String, Object> localeParamMap = new HashMap<>();
-            // 同步调用高德 IP 定位 API
             localeParamMap.put("key", statsLocaleAmapKey);
             localeParamMap.put("ip", statsRecord.getRemoteAddr());
             String localeResultStr = HttpUtil.get(AMAP_REMOTE_URL, localeParamMap);
@@ -167,12 +113,10 @@ public class ShortLinkStatsSaveConsumer implements StreamListener<String, MapRec
             String infoCode = localeResultObj.getString("infocode");
             String actualProvince = "未知";
             String actualCity = "未知";
-            // 校验 API 响应状态码 ("10000" 表示成功)
+            // 校验 API 响应状态码（"10000" 表示成功）
             if (StrUtil.isNotBlank(infoCode) && StrUtil.equals(infoCode, "10000")) {
                 String province = localeResultObj.getString("province");
                 boolean unknownFlag = StrUtil.equals(province, "[]");
-
-                //  2.linkLocaleStatsDO 写地区表 t_link_locale_stats
                 LinkLocaleStatsDO linkLocaleStatsDO = LinkLocaleStatsDO.builder()
                         .province(actualProvince = unknownFlag ? actualProvince : province)
                         .city(actualCity = unknownFlag ? actualCity : localeResultObj.getString("city"))
@@ -185,7 +129,7 @@ public class ShortLinkStatsSaveConsumer implements StreamListener<String, MapRec
                 linkLocaleStatsMapper.shortLinkLocaleState(linkLocaleStatsDO);
             }
 
-            // 3. 写 OS 表 t_link_os_stats
+            // 3. OS 表 t_link_os_stats
             LinkOsStatsDO linkOsStatsDO = LinkOsStatsDO.builder()
                     .os(statsRecord.getOs())
                     .cnt(1)
@@ -194,7 +138,7 @@ public class ShortLinkStatsSaveConsumer implements StreamListener<String, MapRec
                     .build();
             linkOsStatsMapper.shortLinkOsState(linkOsStatsDO);
 
-            // 4. 写 Browser 表 t_link_browser_stats
+            // 4. 浏览器表 t_link_browser_stats
             LinkBrowserStatsDO linkBrowserStatsDO = LinkBrowserStatsDO.builder()
                     .browser(statsRecord.getBrowser())
                     .cnt(1)
@@ -203,7 +147,7 @@ public class ShortLinkStatsSaveConsumer implements StreamListener<String, MapRec
                     .build();
             linkBrowserStatsMapper.shortLinkBrowserState(linkBrowserStatsDO);
 
-            // 5. 写 Device 表 t_link_device_stats
+            // 5. 设备表 t_link_device_stats
             LinkDeviceStatsDO linkDeviceStatsDO = LinkDeviceStatsDO.builder()
                     .device(statsRecord.getDevice())
                     .cnt(1)
@@ -212,7 +156,7 @@ public class ShortLinkStatsSaveConsumer implements StreamListener<String, MapRec
                     .build();
             linkDeviceStatsMapper.shortLinkDeviceState(linkDeviceStatsDO);
 
-            // 6. 写 Network 表 t_link_network_stats
+            // 6. 网络表 t_link_network_stats
             LinkNetworkStatsDO linkNetworkStatsDO = LinkNetworkStatsDO.builder()
                     .network(statsRecord.getNetwork())
                     .cnt(1)
@@ -221,7 +165,7 @@ public class ShortLinkStatsSaveConsumer implements StreamListener<String, MapRec
                     .build();
             linkNetworkStatsMapper.shortLinkNetworkState(linkNetworkStatsDO);
 
-            // 7. 写明细流水日志表 t_link_access_logs
+            // 7. 明细流水表 t_link_access_logs（普通 INSERT，一次访问一行）
             LinkAccessLogsDO linkAccessLogsDO = LinkAccessLogsDO.builder()
                     .user(statsRecord.getUv())
                     .ip(statsRecord.getRemoteAddr())
@@ -232,10 +176,9 @@ public class ShortLinkStatsSaveConsumer implements StreamListener<String, MapRec
                     .locale(StrUtil.join("-", "中国", actualProvince, actualCity))
                     .fullShortUrl(fullShortUrl)
                     .build();
-            // 直接插入数据库流水表（注意：这里是普通 INSERT，不带 ON DUPLICATE KEY UPDATE）
             linkAccessLogsMapper.insert(linkAccessLogsDO);
 
-            // 8. 累加主表 t_link 的 total_pv, total_uv, total_uip
+            // 8. 累加主表 t_link 的 total_pv / total_uv / total_uip
             shortLinkMapper.incrementStats(gid, fullShortUrl, 1, statsRecord.getUvFirstFlag() ? 1 : 0, statsRecord.getUipFirstFlag() ? 1 : 0);
 
             // 9. 累加今日统计表 t_link_stats_today
@@ -247,8 +190,6 @@ public class ShortLinkStatsSaveConsumer implements StreamListener<String, MapRec
                     .date(currentDate)
                     .build();
             linkStatsTodayMapper.shortLinkTodayState(linkStatsTodayDO);
-
-
         } finally {
             rLock.unlock();
         }

@@ -86,14 +86,24 @@ public class ShortLinkStatsServiceImpl implements ShortLinkStatsService {
 
     @Override
     public ShortLinkStatsRespDTO oneShortLinkStats(ShortLinkStatsReqDTO requestParam) {
+        // 1. 越权校验：校验 gid 是否属于当前登录用户
         checkGroupBelongToUser(requestParam.getGid());
+        // v2 新增：enableStatus 从未由前端传入，统一默认查启用中的短链，
+        // 避免多个统计 SQL 中 enable_status = #{enableStatus}（null 恒不成立）导致各维度查不到数据
+        if (requestParam.getEnableStatus() == null) {
+            requestParam.setEnableStatus(0);
+        }
         List<LinkAccessStatsDO> listStatsByShortLink = linkAccessStatsMapper.listStatsByShortLink(requestParam);
         if (CollUtil.isEmpty(listStatsByShortLink)) {
             return null;
         }
-        // 基础访问数据
+        // 2. 查询时间段内的总 PV、UV、UIP
         LinkAccessStatsDO pvUvUidStatsByShortLink = linkAccessLogsMapper.findPvUvUidStatsByShortLink(requestParam);
-        // 基础访问详情
+        // v2 新增：聚合查询可能返回 null（区间无数据等），兜底为 0 值，避免后续 NPE
+        if (pvUvUidStatsByShortLink == null) {
+            pvUvUidStatsByShortLink = LinkAccessStatsDO.builder().pv(0).uv(0).uip(0).build();
+        }
+        // 3. 查询每日趋势（每天的 PV/UV/UIP）
         List<ShortLinkStatsAccessDailyRespDTO> daily = new ArrayList<>();
         List<String> rangeDates = DateUtil.rangeToList(DateUtil.parse(requestParam.getStartDate()), DateUtil.parse(requestParam.getEndDate()), DateField.DAY_OF_MONTH).stream()
                 .map(DateUtil::formatDate)
@@ -265,21 +275,26 @@ public class ShortLinkStatsServiceImpl implements ShortLinkStatsService {
             networkStats.add(networkRespDTO);
         });
         return ShortLinkStatsRespDTO.builder()
-                .pv(pvUvUidStatsByShortLink.getPv())
-                .uv(pvUvUidStatsByShortLink.getUv())
-                .uip(pvUvUidStatsByShortLink.getUip())
-                .daily(daily)
-                .localeCnStats(localeCnStats)
+                .pv(pvUvUidStatsByShortLink.getPv()) // 来自 t_link_access_stats 查出的 DO
+                .uv(pvUvUidStatsByShortLink.getUv())// 来自 t_link_access_stats 查出的 DO
+                .uip(pvUvUidStatsByShortLink.getUip())// 来自 t_link_access_stats 查出的 DO
+                .daily(daily)                           // 经过 Java 循环补齐 0 后的趋势数据 DTO
+                .localeCnStats(localeCnStats)           // 来自 t_link_locale_stats 查出的 DO 列表转换
                 .hourStats(hourStats)
                 .topIpStats(topIpStats)
                 .weekdayStats(weekdayStats)
-                .browserStats(browserStats)
+                .browserStats(browserStats)         // 来自 t_link_browser_stats 查出后并计算了 ratio 的 DTO 列表
                 .osStats(osStats)
                 .uvTypeStats(uvTypeStats)
                 .deviceStats(deviceStats)
                 .networkStats(networkStats)
                 .build();
     }
+
+
+
+
+
 
     @Override
     public ShortLinkStatsRespDTO groupShortLinkStats(ShortLinkGroupStatsReqDTO requestParam) {
@@ -290,6 +305,10 @@ public class ShortLinkStatsServiceImpl implements ShortLinkStatsService {
         }
         // 基础访问数据
         LinkAccessStatsDO pvUvUidStatsByGroup = linkAccessLogsMapper.findPvUvUidStatsByGroup(requestParam);
+        // v2 新增：聚合查询可能返回 null，兜底为 0 值，避免后续 NPE
+        if (pvUvUidStatsByGroup == null) {
+            pvUvUidStatsByGroup = LinkAccessStatsDO.builder().pv(0).uv(0).uip(0).build();
+        }
         // 基础访问详情
         List<ShortLinkStatsAccessDailyRespDTO> daily = new ArrayList<>();
         List<String> rangeDates = DateUtil.rangeToList(DateUtil.parse(requestParam.getStartDate()), DateUtil.parse(requestParam.getEndDate()), DateField.DAY_OF_MONTH).stream()
@@ -450,7 +469,10 @@ public class ShortLinkStatsServiceImpl implements ShortLinkStatsService {
         checkGroupBelongToUser(requestParam.getGid());
         LambdaQueryWrapper<LinkAccessLogsDO> queryWrapper = Wrappers.lambdaQuery(LinkAccessLogsDO.class)
                 .eq(LinkAccessLogsDO::getFullShortUrl, requestParam.getFullShortUrl())
-                .between(LinkAccessLogsDO::getCreateTime, requestParam.getStartDate(), requestParam.getEndDate())
+                // v1 原逻辑（保留对比）：.between(LinkAccessLogsDO::getCreateTime, requestParam.getStartDate(), requestParam.getEndDate())
+                // v2 修复：create_time 是 datetime，endDate 当天需按 24 点包含
+                .ge(LinkAccessLogsDO::getCreateTime, DateUtil.parse(requestParam.getStartDate()))
+                .lt(LinkAccessLogsDO::getCreateTime, DateUtil.offsetDay(DateUtil.parse(requestParam.getEndDate()), 1))
                 .eq(LinkAccessLogsDO::getDelFlag, 0)
                 .orderByDesc(LinkAccessLogsDO::getCreateTime);
         IPage<LinkAccessLogsDO> linkAccessLogsDOIPage = linkAccessLogsMapper.selectPage(requestParam, queryWrapper);
@@ -461,6 +483,10 @@ public class ShortLinkStatsServiceImpl implements ShortLinkStatsService {
         List<String> userAccessLogsList = actualResult.getRecords().stream()
                 .map(ShortLinkStatsAccessRecordRespDTO::getUser)
                 .toList();
+        // v2 新增：enableStatus 未传时默认查启用中的短链，避免 SQL 中 enable_status = NULL 恒不成立
+        if (requestParam.getEnableStatus() == null) {
+            requestParam.setEnableStatus(0);
+        }
         List<Map<String, Object>> uvTypeList = linkAccessLogsMapper.selectUvTypeByUsers(
                 requestParam.getGid(),
                 requestParam.getFullShortUrl(),

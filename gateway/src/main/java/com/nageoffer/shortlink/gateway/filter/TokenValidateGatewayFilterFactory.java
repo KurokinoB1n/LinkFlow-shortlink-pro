@@ -56,31 +56,44 @@ public class TokenValidateGatewayFilterFactory extends AbstractGatewayFilterFact
     public GatewayFilter apply(Config config) {
         return (exchange, chain) -> {
             ServerHttpRequest request = exchange.getRequest();
+            // 提取请求路径和方法
             String requestPath = request.getPath().toString();
             String requestMethod = request.getMethod().name();
+            //判断是否在白名单路径之中
             if (!isPathInWhiteList(requestPath, requestMethod, config.getWhitePathList())) {
+                //不在白名单进入{}内部, 进行token鉴权,从 HTTP 请求头中提取客户端传来的 username 和 token
                 String username = request.getHeaders().getFirst("username");
                 String token = request.getHeaders().getFirst("token");
                 Object userInfo;
+                // 2. 鉴权,拿着 username 和 token 去 Redis 的 Hash 结构里核对身份
                 if (StringUtils.hasText(username) && StringUtils.hasText(token) && (userInfo = stringRedisTemplate.opsForHash().get("short-link:login:" + username, token)) != null) {
+                    // 3. 鉴权成功从 Redis 里拿到该用户的 JSON 信息并解析
+
                     JSONObject userInfoJsonObject = JSON.parseObject(userInfo.toString());
+                    // 4. 【核心黑科技：请求头变异增强】
                     ServerHttpRequest.Builder builder = exchange.getRequest().mutate().headers(httpHeaders -> {
+                        // 把用户的真实 userId 和 realName 塞进请求头里，传给下游的微服务
                         httpHeaders.set("userId", userInfoJsonObject.getString("id"));
                         httpHeaders.set("realName", URLEncoder.encode(userInfoJsonObject.getString("realName"), StandardCharsets.UTF_8));
                     });
+                    // 5. 带着增强后的 Header，把请求转交给下游微服务
                     return chain.filter(exchange.mutate().request(builder.build()).build());
                 }
+                //鉴权失败,1. 拦截请求，设置 HTTP 状态码为 401 (UNAUTHORIZED)
                 ServerHttpResponse response = exchange.getResponse();
                 response.setStatusCode(HttpStatus.UNAUTHORIZED);
+                // 2. 使用 WebFlux 的 Mono 响应式编程模型，向客户端写回友好的 JSON 错误报文
                 return response.writeWith(Mono.fromSupplier(() -> {
                     DataBufferFactory bufferFactory = response.bufferFactory();
                     GatewayErrorResult resultMessage = GatewayErrorResult.builder()
                             .status(HttpStatus.UNAUTHORIZED.value())
                             .message("Token validation error")
                             .build();
+                    // 将对象转成 JSON 字节流并通过 DataBuffer 返回
                     return bufferFactory.wrap(JSON.toJSONString(resultMessage).getBytes());
                 }));
             }
+            //在白名单里,不进入{},直接放行
             return chain.filter(exchange);
         };
     }

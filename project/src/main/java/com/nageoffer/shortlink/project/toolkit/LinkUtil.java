@@ -25,6 +25,9 @@ import jakarta.servlet.http.HttpServletRequest;
 import java.net.URI;
 import java.util.Date;
 import java.util.Optional;
+import java.util.concurrent.ThreadLocalRandom;
+
+import com.nageoffer.shortlink.project.common.constant.ShortLinkConstant;
 
 import static com.nageoffer.shortlink.project.common.constant.ShortLinkConstant.DEFAULT_CACHE_VALID_TIME;
 
@@ -35,15 +38,33 @@ import static com.nageoffer.shortlink.project.common.constant.ShortLinkConstant.
 public class LinkUtil {
 
     /**
-     * 获取短链接缓存有效期时间
+     * 获取短链接缓存有效期时间（v1 固定 TTL，保留供学习对比，推荐使用 {@link #getLinkCacheValidTimeWithJitter(Date)}）
      *
      * @param validDate 有效期时间
      * @return 有限期时间戳
+     * @deprecated v1 方案：永久短链使用固定过期时间，批量创建的短链可能同时过期导致缓存雪崩；保留仅供对比。
      */
+    @Deprecated
     public static long getLinkCacheValidTime(Date validDate) {
         return Optional.ofNullable(validDate)
                 .map(each -> DateUtil.between(new Date(), each, DateUnit.MS))
                 .orElse(DEFAULT_CACHE_VALID_TIME);
+    }
+
+    /**
+     * 获取短链接缓存有效期时间（v2 带随机抖动）
+     * <p>
+     * 优化点：永久短链（validDate 为空）的默认缓存时间在 {@link ShortLinkConstant#DEFAULT_CACHE_VALID_TIME} 的
+     * 90%~110% 之间随机，避免批量创建的短链在同一时刻过期，降低缓存雪崩风险；
+     * 自定义有效期（validDate 非空）保持原逻辑，尊重用户设定的过期时间。
+     *
+     * @param validDate 有效期时间
+     * @return 缓存有效期（毫秒）
+     */
+    public static long getLinkCacheValidTimeWithJitter(Date validDate) {
+        return Optional.ofNullable(validDate)
+                .map(each -> DateUtil.between(new Date(), each, DateUnit.MS))
+                .orElse((long) (DEFAULT_CACHE_VALID_TIME * (0.9 + ThreadLocalRandom.current().nextDouble() * 0.2)));
     }
 
     /**

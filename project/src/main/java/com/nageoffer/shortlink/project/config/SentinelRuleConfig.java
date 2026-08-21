@@ -39,7 +39,8 @@ public class SentinelRuleConfig implements InitializingBean {
         FlowRule createOrderRule = new FlowRule();
         createOrderRule.setResource("create_short-link");
         createOrderRule.setGrade(RuleConstant.FLOW_GRADE_QPS);
-        createOrderRule.setCount(1);
+        // v2 本地测试/压测调整：原值 1（仅演示限流效果），改为 1000 避免创建接口被限流
+        createOrderRule.setCount(1000);
         rules.add(createOrderRule);
         FlowRuleManager.loadRules(rules);
     }

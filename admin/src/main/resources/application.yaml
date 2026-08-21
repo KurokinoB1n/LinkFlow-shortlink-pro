@@ -11,16 +11,18 @@ spring:
     redis:
       host: 127.0.0.1
       port: 6379
-      password: 123456
+      password: redis123456
   cloud:
     nacos:
       discovery:
         server-addr: 127.0.0.1:8848
+        username: nacos
+        password: nacos
 
 short-link:
   group:
     max-num: 20
   flow-limit:
-    enable: true
+    enable: false
     time-window: 1
     max-access-count: 20

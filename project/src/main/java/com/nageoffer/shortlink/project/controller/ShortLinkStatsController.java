@@ -45,6 +45,7 @@ public class ShortLinkStatsController {
      * 访问单个短链接指定时间内监控数据
      */
     @GetMapping("/api/short-link/v1/stats")
+
     public Result<ShortLinkStatsRespDTO> shortLinkStats(ShortLinkStatsReqDTO requestParam) {
         return Results.success(shortLinkStatsService.oneShortLinkStats(requestParam));
     }

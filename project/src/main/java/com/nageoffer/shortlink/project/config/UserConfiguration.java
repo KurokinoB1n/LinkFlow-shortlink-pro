@@ -38,6 +38,8 @@ public class UserConfiguration implements WebMvcConfigurer {
      */
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
+        // v1 原逻辑（保留对比）：addPathPatterns("/api/*", "/admin/*")
+        // 单级通配符匹配不到 /api/short-link/v1/stats 这类多层路径，导致 project 侧 UserContext 恒为空
         registry.addInterceptor(userTransmitInterceptor)
                 .addPathPatterns("/**");
     }

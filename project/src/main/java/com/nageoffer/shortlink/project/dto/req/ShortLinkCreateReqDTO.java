@@ -70,4 +70,9 @@ public class ShortLinkCreateReqDTO {
      * 描述
      */
     private String describe;
+
+    /**
+     * 自定义短链后缀（可选），6-8 位，字符集 [0-9A-Za-z]
+     */
+    private String customShortUri;
 }

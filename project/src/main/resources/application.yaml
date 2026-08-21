@@ -11,7 +11,7 @@ spring:
     redis:
       host: 127.0.0.1
       port: 6379
-      password: 123456
+      password: redis123456
   mvc:
     view:
       prefix: /templates/
@@ -20,10 +20,26 @@ spring:
     nacos:
       discovery:
         server-addr: 127.0.0.1:8848
+        username: nacos
+        password: nacos
+rocketmq:
+  name-server: ${ROCKETMQ_NAME_SERVER:127.0.0.1:9876}   # 本地没设环境变量时用默认值
+  producer:
+    group: short-link-stats-producer
+
 
 short-link:
   domain:
     default: nurl.ink:8001
+  mq-topic: short-link-stats
+
+  bloom:
+    expected-insertions: 100000000
+    false-probability: 0.001
+    rebuild:
+      enabled: true
+      cron: "0 0 3 * * ?"        # 每天凌晨 3 点
+
   stats:
     locale:
       amap-key: 824c511f0997586ea016f979fdb23087

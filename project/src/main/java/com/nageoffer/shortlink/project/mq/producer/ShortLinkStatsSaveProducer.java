@@ -30,7 +30,10 @@ import static com.nageoffer.shortlink.project.common.constant.RedisKeyConstant.S
  * 短链接监控状态保存消息队列生产者
  * 公众号：马丁玩编程，回复：加群，添加马哥微信（备注：link）获取项目资料
  */
-@Component
+// ==================== v1 原逻辑（Redis Stream，保留对比，切换 RocketMQ 后不再注册） ====================
+// @Component
+// ================================================================================================
+@Deprecated // v1：Redis Stream 生产者，保留供对比学习；RocketMQ 版本见 ShortLinkStatsRocketMQProducer
 @RequiredArgsConstructor
 public class ShortLinkStatsSaveProducer {
 

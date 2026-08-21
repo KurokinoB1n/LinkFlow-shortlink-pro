@@ -21,6 +21,7 @@ import cn.hutool.core.util.StrUtil;
 import jakarta.annotation.Nullable;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.HandlerInterceptor;
 
@@ -28,12 +29,15 @@ import org.springframework.web.servlet.HandlerInterceptor;
  * 用户信息传输拦截器
  * 公众号：马丁玩编程，回复：加群，添加马哥微信（备注：link）获取项目资料
  */
+@Slf4j
 @Component
 public class UserTransmitInterceptor implements HandlerInterceptor {
 
     @Override
     public boolean preHandle(@Nullable HttpServletRequest request, @Nullable HttpServletResponse response, @Nullable Object handler) throws Exception {
         String username = request.getHeader("username");
+        // v2 临时诊断日志：确认拦截器是否执行、读到的 username 头是什么
+        log.info("[UserTransmitInterceptor] path={}, username={}", request.getRequestURI(), username);
         if (StrUtil.isNotBlank(username)) {
             String userId = request.getHeader("userId");
             String realName = request.getHeader("realName");

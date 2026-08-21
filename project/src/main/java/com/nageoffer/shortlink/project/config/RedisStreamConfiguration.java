@@ -43,7 +43,10 @@ import static com.nageoffer.shortlink.project.common.constant.RedisKeyConstant.S
  * Redis Stream 消息队列配置
  * 公众号：马丁玩编程，回复：加群，添加马哥微信（备注：link）获取项目资料
  */
-@Configuration
+// ==================== v1 原逻辑（Redis Stream，保留对比，切换 RocketMQ 后不再注册） ====================
+// @Configuration
+// ================================================================================================
+@Deprecated // v1：Redis Stream 消费容器配置，保留供对比学习；RocketMQ 版本见 ShortLinkStatsRocketMQConsumer
 @RequiredArgsConstructor
 public class RedisStreamConfiguration {
 
@@ -83,6 +86,7 @@ public class RedisStreamConfiguration {
         StreamMessageListenerContainer.StreamReadRequest<String> streamReadRequest =
                 StreamMessageListenerContainer.StreamReadRequest.builder(StreamOffset.create(SHORT_LINK_STATS_STREAM_TOPIC_KEY, ReadOffset.lastConsumed()))
                         .cancelOnError(throwable -> false)
+                        //底层为reidis进行XREADGROUP
                         .consumer(Consumer.from(SHORT_LINK_STATS_STREAM_GROUP_KEY, "stats-consumer"))
                         .autoAcknowledge(true)
                         .build();

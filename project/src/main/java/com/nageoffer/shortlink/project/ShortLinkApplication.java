@@ -21,6 +21,7 @@ import org.mybatis.spring.annotation.MapperScan;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.cloud.client.discovery.EnableDiscoveryClient;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 /**
  * 短链接应用
@@ -28,6 +29,10 @@ import org.springframework.cloud.client.discovery.EnableDiscoveryClient;
  */
 @SpringBootApplication
 @EnableDiscoveryClient
+@EnableScheduling  /* v2 新增：开启定时任务- @Scheduled 只做一件事：标记"这个方法要定时执行"；
+                    @EnableScheduling 做另一件事：在这个 Spring 容器里注册调度基础设施（ScheduledAnnotationBeanPostProcessor），
+                        让 Spring 去扫描并执行被 @Scheduled 标记的方法。
+                       没有 @EnableScheduling 的话，@Scheduled 就是个普通注释，方法永远不会被触发。*/
 @MapperScan("com.nageoffer.shortlink.project.dao.mapper")
 public class ShortLinkApplication {
 
